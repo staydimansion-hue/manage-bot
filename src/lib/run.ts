@@ -11,6 +11,7 @@ import {
 import { buildBoardBlocks } from "./blocks";
 import { postMessage } from "./slack";
 import { runAutoExtraction } from "./extraction";
+import { buildDiscussionSummary } from "./summary";
 import { kstDateString } from "./dates";
 
 export interface RunResult {
@@ -39,6 +40,7 @@ export async function runMorning(boardKey: string): Promise<RunResult> {
 
   const extraction = await runAutoExtraction(db, board.id, board.slack_channel_id);
   const rollover = await runDailyRollover(db, board.id, today);
+  const discussionSummary = await buildDiscussionSummary(board.slack_channel_id, today);
 
   const items = await getItems(db, board.id, { includePending: false });
   const categories = await getCategories(db, board.id);
@@ -52,6 +54,8 @@ export async function runMorning(boardKey: string): Promise<RunResult> {
     items: withCats,
     today,
     withButtons: true,
+    showEmpty: true,
+    discussionSummary,
     footnote: `어제 넘어온 미완료 ${rollover.carried}건 · 자동추출 ${extraction.inserted}건(승인 대기)`,
   });
 
@@ -88,6 +92,7 @@ export async function runEvening(boardKey: string): Promise<RunResult> {
   }
 
   const extraction = await runAutoExtraction(db, board.id, board.slack_channel_id);
+  const discussionSummary = await buildDiscussionSummary(board.slack_channel_id, today);
 
   const items = await getItems(db, board.id, { includePending: false });
   const categories = await getCategories(db, board.id);
@@ -101,6 +106,7 @@ export async function runEvening(boardKey: string): Promise<RunResult> {
     items: withCats,
     today,
     withButtons: true,
+    discussionSummary,
     footnote: `완료·진행중·미완료 리캡 · 자동추출 ${extraction.inserted}건(승인 대기)`,
   });
 
