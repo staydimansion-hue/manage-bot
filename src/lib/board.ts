@@ -134,8 +134,13 @@ export async function runDailyRollover(
   const toArchive = items.filter(
     (i) => i.status === "done" && isBeforeKstDay(i.completed_at, today)
   );
+  // Only carry over items that were created on a PREVIOUS KST day. Items created
+  // today are still "day 1" and must stay at carried_over_count 0 (no "N일째"
+  // suffix); they only start accruing the suffix once they survive to tomorrow.
   const toCarry = items.filter(
-    (i) => i.status === "not_started" || i.status === "in_progress"
+    (i) =>
+      (i.status === "not_started" || i.status === "in_progress") &&
+      isBeforeKstDay(i.created_at, today)
   );
 
   const nowIso = new Date().toISOString();
