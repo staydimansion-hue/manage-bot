@@ -124,7 +124,7 @@ async function markMorningSent(
   boardId: string,
   today: string
 ): Promise<void> {
-  await db.from("settings").update({ last_morning_sent_on: today }).eq("board_id", boardId);
+  await db.from("board_settings").update({ last_morning_sent_on: today }).eq("board_id", boardId);
 }
 
 async function markEveningSent(
@@ -132,5 +132,5 @@ async function markEveningSent(
   boardId: string,
   today: string
 ): Promise<void> {
-  await db.from("settings").update({ last_evening_sent_on: today }).eq("board_id", boardId);
+  await db.from("board_settings").update({ last_evening_sent_on: today }).eq("board_id", boardId);
 }

@@ -65,9 +65,9 @@ create table if not exists extraction_state (
   last_slack_ts text
 );
 
--- settings -----------------------------------------------------------------
+-- board_settings -----------------------------------------------------------
 -- Per-board send toggles + same-day dedupe guards.
-create table if not exists settings (
+create table if not exists board_settings (
   board_id             uuid primary key references boards(id) on delete cascade,
   morning_enabled      boolean not null default true,
   evening_enabled      boolean not null default true,

@@ -6,7 +6,7 @@ import {
   Category,
   ItemStatus,
   ItemWithCategory,
-  Settings,
+  BoardSettings,
 } from "./types";
 import { isBeforeKstDay, kstDateString } from "./dates";
 
@@ -88,23 +88,23 @@ export function countByStatus(items: ActionItem[]): BoardCounts {
 export async function getSettings(
   db: SupabaseClient,
   boardId: string
-): Promise<Settings> {
+): Promise<BoardSettings> {
   const { data, error } = await db
-    .from("settings")
+    .from("board_settings")
     .select("*")
     .eq("board_id", boardId)
     .maybeSingle();
   if (error) throw error;
-  if (data) return data as Settings;
+  if (data) return data as BoardSettings;
 
-  const fallback: Settings = {
+  const fallback: BoardSettings = {
     board_id: boardId,
     morning_enabled: true,
     evening_enabled: true,
     last_morning_sent_on: null,
     last_evening_sent_on: null,
   };
-  const { error: upsertError } = await db.from("settings").upsert(fallback);
+  const { error: upsertError } = await db.from("board_settings").upsert(fallback);
   if (upsertError) throw upsertError;
   return fallback;
 }

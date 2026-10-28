@@ -26,7 +26,7 @@ where b.key = 'marketing'
   );
 
 -- Settings -----------------------------------------------------------------
-insert into settings (board_id, morning_enabled, evening_enabled)
+insert into board_settings (board_id, morning_enabled, evening_enabled)
 select id, true, true from boards where key = 'marketing'
 on conflict (board_id) do nothing;
 

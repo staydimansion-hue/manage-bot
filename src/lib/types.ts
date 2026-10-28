@@ -34,7 +34,7 @@ export interface ActionItem {
   carried_over_count: number;
 }
 
-export interface Settings {
+export interface BoardSettings {
   board_id: string;
   morning_enabled: boolean;
   evening_enabled: boolean;
