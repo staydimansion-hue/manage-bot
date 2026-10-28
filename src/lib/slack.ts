@@ -73,13 +73,27 @@ export async function fetchNewMessages(
     .map((m) => ({ ts: m.ts, text: (m.text ?? "").trim() }));
 }
 
-/** Post a message body to a Slack response_url (interactive callbacks). */
-export async function respondViaUrl(responseUrl: string, body: unknown): Promise<void> {
-  await fetch(responseUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+/**
+ * Post a message body to a Slack response_url (interactive callbacks).
+ * Returns whether Slack accepted it (HTTP 200 + "ok" body) so callers can log
+ * failures instead of silently dropping them.
+ */
+export async function respondViaUrl(
+  responseUrl: string,
+  body: unknown
+): Promise<{ ok: boolean; detail?: string }> {
+  try {
+    const res = await fetch(responseUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const text = await res.text();
+    const ok = res.ok && text.trim() === "ok";
+    return ok ? { ok: true } : { ok: false, detail: `status=${res.status} body=${text.slice(0, 200)}` };
+  } catch (err) {
+    return { ok: false, detail: String(err) };
+  }
 }
 
 /**

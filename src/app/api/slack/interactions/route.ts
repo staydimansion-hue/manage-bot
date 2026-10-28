@@ -30,6 +30,12 @@ export async function POST(req: NextRequest) {
   const signature = req.headers.get("x-slack-signature");
 
   if (!verifySlackSignature(raw, timestamp, signature)) {
+    // Surface this in Vercel logs: the usual cause is a missing/incorrect
+    // SLACK_SIGNING_SECRET or a stale request timestamp (replay guard).
+    console.error("slack interactions: signature verification failed", {
+      hasTimestamp: Boolean(timestamp),
+      hasSignature: Boolean(signature),
+    });
     return NextResponse.json({ ok: false, error: "bad_signature" }, { status: 401 });
   }
 
@@ -79,21 +85,42 @@ export async function POST(req: NextRequest) {
       items: withCats,
       today,
       withButtons: true,
+      showEmpty: true,
       footnote: `마지막 업데이트: ${new Date().toISOString()}`,
     });
 
-    // Prefer chat.update by channel+ts; fall back to response_url.
+    // Prefer chat.update by channel+ts; fall back to response_url. A click that
+    // "does nothing" is almost always a chat.update failure that used to be
+    // swallowed here, so log the error and try the other path before giving up.
+    let updated = false;
     if (payload.channel?.id && payload.message?.ts) {
-      await updateMessage(payload.channel.id, payload.message.ts, text, blocks);
-    } else if (payload.response_url) {
-      await respondViaUrl(payload.response_url, {
+      const res = await updateMessage(payload.channel.id, payload.message.ts, text, blocks);
+      updated = res.ok;
+      if (!res.ok) {
+        console.error("slack interactions: chat.update failed", {
+          error: res.error,
+          channel: payload.channel.id,
+          ts: payload.message.ts,
+          blocks: blocks.length,
+        });
+      }
+    }
+    if (!updated && payload.response_url) {
+      const res = await respondViaUrl(payload.response_url, {
         replace_original: true,
         text,
         blocks,
       });
+      updated = res.ok;
+      if (!res.ok) {
+        console.error("slack interactions: response_url update failed", {
+          detail: res.detail,
+          blocks: blocks.length,
+        });
+      }
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: updated });
   } catch (err) {
     console.error("slack interactions error:", err);
     return NextResponse.json({ ok: false, error: "internal_error" }, { status: 200 });
