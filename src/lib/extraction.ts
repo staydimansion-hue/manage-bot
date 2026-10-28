@@ -3,10 +3,12 @@ import { SupabaseClient } from "@supabase/supabase-js";
 import { env, hasAnthropic, hasSlack } from "./config";
 import { fetchNewMessages } from "./slack";
 import { getCategories } from "./board";
+import { kstDateString, normalizeIsoDate } from "./dates";
 
 interface ExtractedItem {
   title: string;
   category: string | null;
+  due_date: string | null;
 }
 
 /**
@@ -45,7 +47,8 @@ export async function runAutoExtraction(
 
     const extracted = await extractWithLLM(
       messages.map((m) => m.text),
-      categoryNames
+      categoryNames,
+      kstDateString()
     );
 
     if (extracted.length > 0) {
@@ -56,6 +59,7 @@ export async function runAutoExtraction(
             ? categories.find((c) => c.name === e.category)!.id
             : null,
         title: e.title,
+        due_date: e.due_date,
         status: "not_started" as const,
         source: "auto" as const,
         approved: false,
@@ -83,7 +87,8 @@ export async function runAutoExtraction(
 
 async function extractWithLLM(
   texts: string[],
-  categoryNames: string[]
+  categoryNames: string[],
+  today: string
 ): Promise<ExtractedItem[]> {
   const client = new Anthropic({ apiKey: env.anthropicApiKey });
 
@@ -94,16 +99,20 @@ async function extractWithLLM(
 
   const prompt = `다음은 마케팅 팀 Slack 채널의 새 메시지입니다. 구체적인 마케팅 실행 액션 아이템만 뽑아주세요. 잡담/질문/감탄사는 제외합니다.
 
+오늘 날짜(KST): ${today}
+
 카테고리 후보: ${catList} (해당 없으면 null)
 
 메시지:
 ${joined}
 
-JSON 배열만 출력하세요. 형식: [{"title": "짧은 액션 제목", "category": "카테고리명 또는 null"}]. 액션이 없으면 [] 를 출력하세요.`;
+각 액션의 마감 기한(due_date)을 추출하세요: 메시지에 "~까지", 날짜, "다음주까지", "이번주 금요일까지" 같은 기한 표현이 있으면 오늘 날짜 기준으로 계산해 "YYYY-MM-DD" 형식으로, 없으면 null 로 설정합니다.
+
+JSON 배열만 출력하세요. 형식: [{"title": "짧은 액션 제목", "category": "카테고리명 또는 null", "due_date": "YYYY-MM-DD 또는 null"}]. 액션이 없으면 [] 를 출력하세요.`;
 
   const response = await client.messages.create({
     model: env.anthropicModel,
-    max_tokens: 512,
+    max_tokens: 640,
     messages: [{ role: "user", content: prompt }],
   });
 
@@ -126,7 +135,7 @@ export function parseExtraction(
     const valid = new Set(categoryNames);
     return parsed
       .filter(
-        (x): x is { title: unknown; category?: unknown } =>
+        (x): x is { title: unknown; category?: unknown; due_date?: unknown } =>
           typeof x === "object" && x !== null && "title" in x
       )
       .map((x) => {
@@ -135,7 +144,7 @@ export function parseExtraction(
           typeof x.category === "string" && valid.has(x.category)
             ? x.category
             : null;
-        return { title, category: cat };
+        return { title, category: cat, due_date: normalizeIsoDate(x.due_date) };
       })
       .filter((x) => x.title.length > 0 && x.title.length <= 200);
   } catch {
