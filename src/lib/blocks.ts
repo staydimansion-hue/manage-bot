@@ -7,21 +7,6 @@ const STATUS_EMOJI: Record<ItemStatus, string> = {
   not_started: "⬜",
 };
 
-/** Build the action_id for a status button so the interactions route can parse it. */
-export function statusActionId(itemId: string, status: ItemStatus): string {
-  return `set_status:${status}:${itemId}`;
-}
-
-export function parseStatusActionId(
-  actionId: string
-): { status: ItemStatus; itemId: string } | null {
-  const parts = actionId.split(":");
-  if (parts.length !== 3 || parts[0] !== "set_status") return null;
-  const status = parts[1] as ItemStatus;
-  if (!["not_started", "in_progress", "done"].includes(status)) return null;
-  return { status, itemId: parts[2] };
-}
-
 function summaryLine(counts: BoardCounts): string {
   return `완료 ${counts.done} · 진행중 ${counts.in_progress} · 미진행 ${counts.not_started}`;
 }
@@ -44,42 +29,12 @@ function itemLine(item: ItemWithCategory, today: string): string {
   return `${emoji} ${item.title}${due}${carried}${warn}`;
 }
 
-/** Buttons for a single item: 진행중 / 완료 / 되돌리기. */
-function itemButtons(item: ItemWithCategory) {
-  return {
-    type: "actions",
-    block_id: `item_actions:${item.id}`,
-    elements: [
-      {
-        type: "button",
-        text: { type: "plain_text", text: "진행중", emoji: true },
-        action_id: statusActionId(item.id, "in_progress"),
-        value: item.id,
-      },
-      {
-        type: "button",
-        text: { type: "plain_text", text: "완료", emoji: true },
-        style: "primary",
-        action_id: statusActionId(item.id, "done"),
-        value: item.id,
-      },
-      {
-        type: "button",
-        text: { type: "plain_text", text: "되돌리기", emoji: true },
-        action_id: statusActionId(item.id, "not_started"),
-        value: item.id,
-      },
-    ],
-  };
-}
-
 interface BuildOptions {
   title: string;
   counts: BoardCounts;
   categories: Category[];
   items: ItemWithCategory[];
   today: string;
-  withButtons: boolean;
   footnote?: string;
   /** Optional 오늘 채널 논의 요약 section text (Korean, multi-line). */
   discussionSummary?: string;
@@ -91,19 +46,20 @@ interface BuildOptions {
   showEmpty?: boolean;
 }
 
-// Slack hard-caps a message at 50 blocks. Leave headroom for the fixed
-// header/summary/divider/footnote blocks.
-const MAX_BLOCKS = 50;
-
 /**
- * Build a Block Kit message grouped by category. Shared by morning and evening;
- * callers pass different titles, item sets and whether to render buttons.
+ * Build a read-only Block Kit message grouped by category. Shared by morning
+ * and evening; callers pass different titles, item sets and whether empty
+ * categories are shown.
  *
- * The morning report (showEmpty) shows all categories and every item with no
- * truncation. Because per-item buttons cost 2 blocks each, a large board can
- * exceed Slack's 50-block limit; when that happens we drop the per-item buttons
- * and fall back to a compact text-only layout (one section per category) so the
- * full board still posts and nothing is omitted.
+ * The board carries no interactive controls — status changes are made in the
+ * /admin/marketing admin page. Each category renders as one section (a bold
+ * header followed by newline-separated item lines), with a divider between
+ * categories so they read as a clean, separated board. Collapsing each
+ * category to a single section keeps the message well under Slack's 50-block
+ * limit naturally.
+ *
+ * The morning report (showEmpty) shows all categories, empty ones as "(없음)";
+ * the evening report shows only categories that have items.
  */
 export function buildBoardBlocks(opts: BuildOptions): {
   text: string;
@@ -115,7 +71,6 @@ export function buildBoardBlocks(opts: BuildOptions): {
     categories,
     items,
     today,
-    withButtons,
     footnote,
     discussionSummary,
     showEmpty,
@@ -132,99 +87,48 @@ export function buildBoardBlocks(opts: BuildOptions): {
   // showEmpty keeps empty categories (not the synthetic 기타 bucket).
   const shown = showEmpty ? groups : groups.filter((g) => g.items.length > 0);
 
-  const head = (): unknown[] => {
-    const h: unknown[] = [
-      { type: "header", text: { type: "plain_text", text: title, emoji: true } },
-      {
-        type: "section",
-        text: { type: "mrkdwn", text: `*${summaryLine(counts)}*` },
+  const blocks: unknown[] = [
+    { type: "header", text: { type: "plain_text", text: title, emoji: true } },
+    {
+      type: "section",
+      text: { type: "mrkdwn", text: `*${summaryLine(counts)}*` },
+    },
+  ];
+
+  if (discussionSummary) {
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*📝 오늘 채널 논의 요약*\n${discussionSummary}`,
       },
-    ];
-    if (discussionSummary) {
-      h.push({
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: `*📝 오늘 채널 논의 요약*\n${discussionSummary}`,
-        },
-      });
-    }
-    h.push({ type: "divider" });
-    return h;
-  };
+    });
+  }
 
-  const foot = (): unknown[] =>
-    footnote
-      ? [
-          { type: "divider" },
-          { type: "context", elements: [{ type: "mrkdwn", text: footnote }] },
-        ]
-      : [];
+  blocks.push({ type: "divider" });
 
-  // Compact layout: one section per category listing all item lines.
-  const buildCompact = (): unknown[] => {
-    const body: unknown[] = [];
-    if (shown.length === 0) {
-      body.push({
-        type: "section",
-        text: { type: "mrkdwn", text: "_오늘 등록된 액션 아이템이 없습니다._" },
-      });
-    }
-    for (const group of shown) {
+  if (shown.length === 0) {
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: "_오늘 등록된 액션 아이템이 없습니다._" },
+    });
+  } else {
+    // One section per category, separated by dividers.
+    shown.forEach((group, idx) => {
+      if (idx > 0) blocks.push({ type: "divider" });
       const lines = group.items.length
         ? group.items.map((i) => itemLine(i, today)).join("\n")
         : "_(없음)_";
-      body.push({
+      blocks.push({
         type: "section",
         text: { type: "mrkdwn", text: `*${group.name}*\n${lines}` },
       });
-    }
-    return [...head(), ...body, ...foot()];
-  };
+    });
+  }
 
-  // Interactive layout: category header + per-item line section & buttons.
-  const buildInteractive = (): unknown[] => {
-    const body: unknown[] = [];
-    const nonEmpty = shown.filter((g) => g.items.length > 0);
-    if (nonEmpty.length === 0 && shown.length === 0) {
-      body.push({
-        type: "section",
-        text: { type: "mrkdwn", text: "_오늘 등록된 액션 아이템이 없습니다._" },
-      });
-    }
-    for (const group of shown) {
-      if (group.items.length === 0) {
-        body.push({
-          type: "section",
-          text: { type: "mrkdwn", text: `*${group.name}*\n_(없음)_` },
-        });
-        continue;
-      }
-      body.push({
-        type: "section",
-        text: { type: "mrkdwn", text: `*${group.name}*` },
-      });
-      for (const item of group.items) {
-        body.push({
-          type: "section",
-          text: { type: "mrkdwn", text: itemLine(item, today) },
-        });
-        body.push(itemButtons(item));
-      }
-    }
-    return [...head(), ...body, ...foot()];
-  };
-
-  let blocks = withButtons ? buildInteractive() : buildCompact();
-  if (blocks.length > MAX_BLOCKS) {
-    // Too many blocks for Slack — drop buttons and render the full board
-    // compactly so nothing is omitted.
-    if (withButtons) {
-      console.warn(
-        `buildBoardBlocks: ${blocks.length} blocks exceeds ${MAX_BLOCKS}; falling back to text-only layout`
-      );
-    }
-    blocks = buildCompact();
+  if (footnote) {
+    blocks.push({ type: "divider" });
+    blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: footnote }] });
   }
 
   return { text: `${title} — ${summaryLine(counts)}`, blocks };

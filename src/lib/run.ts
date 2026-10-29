@@ -22,8 +22,8 @@ export interface RunResult {
 
 /**
  * Morning run: auto-extract → daily rollover → post "today's to-do + carried
- * over incomplete" board with interactive buttons. Deduped on
- * last_morning_sent_on so a repeated same-day cron hit is a no-op.
+ * over incomplete" read-only board. Deduped on last_morning_sent_on so a
+ * repeated same-day cron hit is a no-op.
  */
 export async function runMorning(boardKey: string): Promise<RunResult> {
   const db = requireSupabase();
@@ -53,7 +53,6 @@ export async function runMorning(boardKey: string): Promise<RunResult> {
     categories,
     items: withCats,
     today,
-    withButtons: true,
     showEmpty: true,
     discussionSummary,
     footnote: `어제 넘어온 미완료 ${rollover.carried}건 · 자동추출 ${extraction.inserted}건(승인 대기)`,
@@ -105,7 +104,6 @@ export async function runEvening(boardKey: string): Promise<RunResult> {
     categories,
     items: withCats,
     today,
-    withButtons: true,
     discussionSummary,
     footnote: `완료·진행중·미완료 리캡 · 자동추출 ${extraction.inserted}건(승인 대기)`,
   });

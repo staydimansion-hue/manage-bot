@@ -6,7 +6,6 @@
 export const env = {
   // Slack
   slackBotToken: process.env.SLACK_BOT_TOKEN ?? "",
-  slackSigningSecret: process.env.SLACK_SIGNING_SECRET ?? "",
 
   // Supabase
   supabaseUrl: process.env.SUPABASE_URL ?? "",

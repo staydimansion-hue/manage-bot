@@ -1,8 +1,9 @@
 # Marketing PM Bot (manage-bot)
 
 A Next.js (App Router) + TypeScript app backed by Supabase (Postgres) that
-posts a **marketing action-item board** into a Slack channel twice a day and
-lets people change item status from Slack buttons or a lightweight admin page.
+posts a **marketing action-item board** into a Slack channel twice a day. The
+Slack messages are **read-only**; item status is managed from a lightweight
+admin page.
 
 The data model and UI are built as a **shared, generic foundation** keyed by a
 `board` concept, so a second "operations/housekeeping" bot can be added later by
@@ -11,13 +12,15 @@ implemented now.
 
 ## Features
 
-- **Twice-daily Slack posts** (Block Kit), grouped by category:
+- **Twice-daily Slack posts** (Block Kit), read-only and grouped by category
+  with a divider between each category:
   - Morning (09:00 KST): today's to-do + yesterday's carried-over incomplete
     items, after a daily rollover.
   - Evening (21:00 KST): completed / in-progress / incomplete recap.
 - **Daily rollover**: items completed on a previous day are archived (kept in
   history); incomplete items carry into the new day with a counter. Idempotent.
-- **Interactive buttons** per item in Slack: `진행중` / `완료` / `되돌리기`.
+- **Status managed in the admin page** (not Slack): the daily messages carry no
+  buttons; all status changes happen in `/admin/marketing`.
 - **Auto-extraction**: a cheap LLM reads only NEW channel messages and proposes
   action items, inserted as pending (approval required in admin).
 - **Admin page** `/admin/marketing`: manage categories, items, statuses, and
@@ -74,7 +77,6 @@ file for the full list:
 | Var | Purpose |
 | --- | --- |
 | `SLACK_BOT_TOKEN` | Bot token (`xoxb-...`) for posting & reading history |
-| `SLACK_SIGNING_SECRET` | Verifies interactive button requests |
 | `SUPABASE_URL` | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service-role key (server-side only) |
 | `ANTHROPIC_API_KEY` | For LLM auto-extraction (optional) |
@@ -88,10 +90,9 @@ file for the full list:
 2. **OAuth scopes** (Bot Token Scopes): `chat:write`, `channels:history`,
    `groups:history` (use `groups:history` for private channels). Install to the
    workspace and copy the Bot Token into `SLACK_BOT_TOKEN`.
-3. Copy the **Signing Secret** (Basic Information) into `SLACK_SIGNING_SECRET`.
-4. **Interactivity**: enable it and set the Request URL to
-   `https://<your-host>/api/slack/interactions`.
-5. **Invite the bot** to the channel `스테이디멘션-마케팅방`
+3. **Interactivity** is not used — the messages are read-only, so you can leave
+   Interactivity off in the Slack app (no Request URL needed).
+4. **Invite the bot** to the channel `스테이디멘션-마케팅방`
    (`/invite @your-bot`), then set `boards.slack_channel_id` (see step 2).
 
 ### 5. Cron jobs (cron-job.org)
@@ -122,7 +123,7 @@ app behind additional protection (VPN / platform auth) if you need more.
 **Morning** (`/api/cron/marketing-morning`):
 1. Auto-extraction (reads new Slack messages → pending items).
 2. Daily rollover (archive items done on a previous day; carry incomplete).
-3. Post the morning board with buttons; mark `last_morning_sent_on`.
+3. Post the read-only morning board; mark `last_morning_sent_on`.
 
 **Evening** (`/api/cron/marketing-evening`):
 1. Auto-extraction.
