@@ -19,14 +19,14 @@ function dueSuffix(dueDate: string | null): string {
   return ` (~${m[1]}/${m[2]}까지)`;
 }
 
-function itemLine(item: ItemWithCategory, today: string): string {
+function itemLine(item: ItemWithCategory, today: string, num: number): string {
   const emoji = STATUS_EMOJI[item.status];
   const overdue = isOverdue(item.due_date, today) && item.status !== "done";
   const due = dueSuffix(item.due_date);
   const carried =
     item.carried_over_count > 0 ? ` _(${item.carried_over_count}일째)_` : "";
   const warn = overdue ? " ⚠️" : "";
-  return `${emoji} ${item.title}${due}${carried}${warn}`;
+  return `${num}. ${emoji} ${item.title}${due}${carried}${warn}`;
 }
 
 interface BuildOptions {
@@ -113,11 +113,14 @@ export function buildBoardBlocks(opts: BuildOptions): {
       text: { type: "mrkdwn", text: "_오늘 등록된 액션 아이템이 없습니다._" },
     });
   } else {
-    // One section per category, separated by dividers.
+    // One section per category, separated by dividers. The counter runs
+    // continuously across categories (it is NOT reset per group) so items are
+    // numbered 1, 2, 3, … across the whole board.
+    let itemNumber = 0;
     shown.forEach((group, idx) => {
       if (idx > 0) blocks.push({ type: "divider" });
       const lines = group.items.length
-        ? group.items.map((i) => itemLine(i, today)).join("\n")
+        ? group.items.map((i) => itemLine(i, today, ++itemNumber)).join("\n")
         : "_(없음)_";
       blocks.push({
         type: "section",
