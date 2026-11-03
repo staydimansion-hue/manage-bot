@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { env, MARKETING_BOARD_KEY } from "@/lib/config";
+import { MARKETING_BOARD_KEY } from "@/lib/config";
+import { isCronAuthorized } from "@/lib/cronauth";
 import { runEvening } from "@/lib/run";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
-  const token = req.nextUrl.searchParams.get("token");
-  if (!env.cronSecret || token !== env.cronSecret) {
+  if (!isCronAuthorized(req)) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 

@@ -95,20 +95,45 @@ file for the full list:
 4. **Invite the bot** to the channel `스테이디멘션-마케팅방`
    (`/invite @your-bot`), then set `boards.slack_channel_id` (see step 2).
 
-### 5. Cron jobs (cron-job.org)
+### 5. Cron jobs (Vercel Cron — automatic)
 
-Register two GET jobs (times are KST):
+Scheduling is handled **automatically by Vercel Cron** via `vercel.json` at the
+repo root — no external service is needed. On every deploy, Vercel registers the
+two cron jobs defined there:
 
-- Morning — `https://<your-host>/api/cron/marketing-morning?token=<CRON_SECRET>`
-  at **09:00 KST**.
-- Evening — `https://<your-host>/api/cron/marketing-evening?token=<CRON_SECRET>`
-  at **21:00 KST**.
+```json
+{
+  "crons": [
+    { "path": "/api/cron/marketing-morning", "schedule": "0 0 * * *" },
+    { "path": "/api/cron/marketing-evening", "schedule": "0 12 * * *" }
+  ]
+}
+```
+
+- Schedules are in **UTC**. Korea is UTC+9 (no DST), so:
+  - `0 0 * * *` = **00:00 UTC = 09:00 KST** (morning).
+  - `0 12 * * *` = **12:00 UTC = 21:00 KST** (evening).
+- Vercel invokes each path with an HTTP **GET** and authenticates by sending the
+  `CRON_SECRET` env var as an **`Authorization: Bearer <CRON_SECRET>`** header, so
+  `CRON_SECRET` must be set in the Vercel project (it already is).
+- On the **Hobby plan**, cron jobs fire **within the hour** (timing is
+  approximate, ≈±1h) and are limited to **once per day** — both fine here.
+- **Changing a schedule requires a redeploy** (Vercel reads `vercel.json` at
+  deploy time).
 
 Both endpoints dedupe on the sent-on date, so a double hit on the same day is a
-no-op (returns `already_sent`). Requests without the correct `token` get `401`.
+no-op (returns `already_sent`). Requests without a valid credential get `401`
+(and if `CRON_SECRET` is unset, **all** requests are rejected).
 
-> cron-job.org schedules in a fixed timezone; set the job timezone to
-> `Asia/Seoul` or convert 09:00/21:00 KST to UTC (00:00 / 12:00 UTC).
+**Manual testing** still works in a browser via the query token:
+
+- Morning — `https://<your-host>/api/cron/marketing-morning?token=<CRON_SECRET>`
+- Evening — `https://<your-host>/api/cron/marketing-evening?token=<CRON_SECRET>`
+
+> **Alternative — external cron (cron-job.org):** if you ever host somewhere
+> without Vercel Cron, you can instead register two GET jobs hitting the
+> `?token=<CRON_SECRET>` URLs above, set to **00:00 / 12:00 UTC** (09:00 / 21:00
+> KST). Vercel Cron is the primary, recommended path.
 
 ---
 
