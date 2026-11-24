@@ -6,6 +6,8 @@
 export const env = {
   // Slack
   slackBotToken: process.env.SLACK_BOT_TOKEN ?? "",
+  // Events API (@멘션으로 상태 바로 반영). Basic Information > Signing Secret.
+  slackSigningSecret: process.env.SLACK_SIGNING_SECRET ?? "",
 
   // Supabase
   supabaseUrl: process.env.SUPABASE_URL ?? "",

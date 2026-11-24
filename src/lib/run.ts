@@ -55,7 +55,7 @@ export async function runMorning(boardKey: string): Promise<RunResult> {
     today,
     showEmpty: true,
     discussionSummary,
-    footnote: `어제 넘어온 미완료 ${rollover.carried}건 · 자동추출 ${extraction.inserted}건(승인 대기)`,
+    footnote: `어제 넘어온 미완료 ${rollover.carried}건 · 채널 보고로 상태 변경 ${extraction.statusChanged}건 · 자동추출 ${extraction.inserted}건(승인 대기)`,
   });
 
   if (!board.slack_channel_id) {
@@ -105,7 +105,7 @@ export async function runEvening(boardKey: string): Promise<RunResult> {
     items: withCats,
     today,
     discussionSummary,
-    footnote: `완료·진행중·미완료 리캡 · 자동추출 ${extraction.inserted}건(승인 대기)`,
+    footnote: `완료·진행중·미완료 리캡 · 채널 보고로 상태 변경 ${extraction.statusChanged}건 · 자동추출 ${extraction.inserted}건(승인 대기)`,
   });
 
   if (!board.slack_channel_id) {
@@ -137,4 +137,27 @@ async function markEveningSent(
   today: string
 ): Promise<void> {
   await db.from("board_settings").update({ last_evening_sent_on: today }).eq("board_id", boardId);
+}
+
+/**
+ * Build the current board (no rollover, no extraction, no summary) — used to
+ * answer an @mention with the board after the requested changes.
+ */
+export async function buildCurrentBoard(
+  db: ReturnType<typeof requireSupabase>,
+  boardId: string,
+  title: string,
+  footnote?: string
+): Promise<{ text: string; blocks: unknown[] }> {
+  const today = kstDateString();
+  const items = await getItems(db, boardId, { includePending: false });
+  const categories = await getCategories(db, boardId);
+  return buildBoardBlocks({
+    title,
+    counts: countByStatus(items),
+    categories,
+    items: withCategories(items, categories),
+    today,
+    footnote,
+  });
 }

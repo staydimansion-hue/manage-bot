@@ -74,6 +74,24 @@ export function withCategories(
   }));
 }
 
+/**
+ * Items in the exact order the Slack board numbers them: categories by
+ * sort_order, then uncategorized items (the "기타" group) last. "2번 완료" in
+ * Slack refers to index 1 of this list, so blocks.ts and the status-update step
+ * must both use this order.
+ */
+export function orderItemsForBoard<T extends ActionItem>(
+  categories: Category[],
+  items: T[]
+): T[] {
+  const ordered = [...categories].sort((a, b) => a.sort_order - b.sort_order);
+  const known = new Set(ordered.map((c) => c.id));
+  const result: T[] = [];
+  for (const c of ordered) result.push(...items.filter((i) => i.category_id === c.id));
+  result.push(...items.filter((i) => !i.category_id || !known.has(i.category_id)));
+  return result;
+}
+
 /** Count items by status (approved + active items only). */
 export function countByStatus(items: ActionItem[]): BoardCounts {
   const counts: BoardCounts = { done: 0, in_progress: 0, not_started: 0 };

@@ -2,7 +2,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { env, hasAnthropic, hasSlack } from "./config";
 import { fetchNewMessages } from "./slack";
-import { getCategories } from "./board";
+import { getCategories, getItems } from "./board";
+import { applyStatusUpdates } from "./statusUpdates";
 import { kstDateString, normalizeIsoDate } from "./dates";
 
 interface ExtractedItem {
@@ -26,11 +27,11 @@ export async function runAutoExtraction(
   db: SupabaseClient,
   boardId: string,
   channelId: string | null
-): Promise<{ inserted: number; skippedReason?: string }> {
+): Promise<{ inserted: number; statusChanged: number; skippedReason?: string }> {
   try {
-    if (!channelId) return { inserted: 0, skippedReason: "no_channel" };
-    if (!hasSlack()) return { inserted: 0, skippedReason: "no_slack" };
-    if (!hasAnthropic()) return { inserted: 0, skippedReason: "no_anthropic" };
+    if (!channelId) return { inserted: 0, statusChanged: 0, skippedReason: "no_channel" };
+    if (!hasSlack()) return { inserted: 0, statusChanged: 0, skippedReason: "no_slack" };
+    if (!hasAnthropic()) return { inserted: 0, statusChanged: 0, skippedReason: "no_anthropic" };
 
     const { data: stateRow } = await db
       .from("extraction_state")
@@ -40,16 +41,23 @@ export async function runAutoExtraction(
     const lastTs: string | null = stateRow?.last_slack_ts ?? null;
 
     const messages = await fetchNewMessages(channelId, lastTs, 30);
-    if (messages.length === 0) return { inserted: 0, skippedReason: "no_new_messages" };
+    if (messages.length === 0) return { inserted: 0, statusChanged: 0, skippedReason: "no_new_messages" };
 
+    // Oldest first, so "진행중" then "완료" ends as 완료.
+    const texts = [...messages].sort((a, b) => Number(a.ts) - Number(b.ts)).map((m) => m.text);
+
+    // 1) Progress reports on existing items ("2번 완결") change their status.
+    const status = await applyStatusUpdates(db, boardId, texts);
+
+    // 2) Genuinely new to-dos become pending items. Existing titles (approved
+    //    or pending) are passed so the same work is not added again.
     const categories = await getCategories(db, boardId);
     const categoryNames = categories.map((c) => c.name);
-
-    const extracted = await extractWithLLM(
-      messages.map((m) => m.text),
-      categoryNames,
-      kstDateString()
+    const existingTitles = (await getItems(db, boardId, { includePending: true })).map(
+      (i) => i.title
     );
+
+    const extracted = await extractWithLLM(texts, categoryNames, kstDateString(), existingTitles);
 
     if (extracted.length > 0) {
       const rows = extracted.map((e) => ({
@@ -77,18 +85,19 @@ export async function runAutoExtraction(
       .from("extraction_state")
       .upsert({ board_id: boardId, last_slack_ts: newestTs });
 
-    return { inserted: extracted.length };
+    return { inserted: extracted.length, statusChanged: status.applied.length };
   } catch (err) {
     // Never fail the cron because of extraction.
     console.error("auto-extraction error:", err);
-    return { inserted: 0, skippedReason: "error" };
+    return { inserted: 0, statusChanged: 0, skippedReason: "error" };
   }
 }
 
 async function extractWithLLM(
   texts: string[],
   categoryNames: string[],
-  today: string
+  today: string,
+  existingTitles: string[] = []
 ): Promise<ExtractedItem[]> {
   const client = new Anthropic({ apiKey: env.anthropicApiKey });
 
@@ -97,7 +106,16 @@ async function extractWithLLM(
     ? categoryNames.map((c) => `"${c}"`).join(", ")
     : "없음";
 
-  const prompt = `다음은 마케팅 팀 Slack 채널의 새 메시지입니다. 구체적인 마케팅 실행 액션 아이템만 뽑아주세요. 잡담/질문/감탄사는 제외합니다.
+  const existing = existingTitles.length
+    ? existingTitles.map((t) => `- ${t}`).join("\n")
+    : "없음";
+
+  const prompt = `다음은 마케팅 팀 Slack 채널의 새 메시지입니다. 앞으로 해야 할 구체적인 마케팅 실행 액션 아이템만 뽑아주세요. 잡담/질문/감탄사는 제외합니다.
+
+이미 보드에 있는 항목(같거나 비슷한 일은 다시 뽑지 마세요):
+${existing}
+
+다음도 뽑지 마세요: "N번 완료/완결/진행중" 같은 기존 항목의 진행 보고, 이미 끝냈다고 말하는 일, 보드 메시지를 다시 붙여 넣은 내용.
 
 오늘 날짜(KST): ${today}
 

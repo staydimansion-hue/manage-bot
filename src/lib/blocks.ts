@@ -81,7 +81,10 @@ export function buildBoardBlocks(opts: BuildOptions): {
   const groups: { name: string; items: ItemWithCategory[] }[] = ordered.map(
     (c) => ({ name: c.name, items: items.filter((i) => i.category_id === c.id) })
   );
-  const uncategorized = items.filter((i) => !i.category_id);
+  // Same rule as orderItemsForBoard(): items without a (still active) category
+  // go to the trailing "기타" group, so Slack numbers match "N번 완료" parsing.
+  const known = new Set(ordered.map((c) => c.id));
+  const uncategorized = items.filter((i) => !i.category_id || !known.has(i.category_id));
   if (uncategorized.length > 0) groups.push({ name: "기타", items: uncategorized });
 
   // showEmpty keeps empty categories (not the synthetic 기타 bucket).

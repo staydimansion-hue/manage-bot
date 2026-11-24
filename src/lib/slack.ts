@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { env, hasSlack } from "./config";
 
 const SLACK_API = "https://slack.com/api";
@@ -29,9 +30,37 @@ async function slackPost(method: string, body: unknown): Promise<SlackApiResult>
 export async function postMessage(
   channel: string,
   text: string,
-  blocks: unknown[]
+  blocks: unknown[],
+  threadTs?: string
 ): Promise<SlackApiResult> {
-  return slackPost("chat.postMessage", { channel, text, blocks });
+  return slackPost("chat.postMessage", {
+    channel,
+    text,
+    blocks,
+    ...(threadTs ? { thread_ts: threadTs } : {}),
+  });
+}
+
+/**
+ * Verify a Slack Events API request (v0 HMAC-SHA256 signature). Rejects
+ * requests older than 5 minutes to block replays.
+ */
+export function verifySlackSignature(opts: {
+  signingSecret: string;
+  timestamp: string;
+  signature: string;
+  rawBody: string;
+}): boolean {
+  const { signingSecret, timestamp, signature, rawBody } = opts;
+  if (!signingSecret || !timestamp || !signature) return false;
+  const ts = Number(timestamp);
+  if (!Number.isFinite(ts) || Math.abs(Date.now() / 1000 - ts) > 60 * 5) return false;
+  const expected =
+    "v0=" +
+    crypto.createHmac("sha256", signingSecret).update(`v0:${timestamp}:${rawBody}`).digest("hex");
+  const a = Buffer.from(expected);
+  const b = Buffer.from(signature);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
 /**

@@ -90,8 +90,13 @@ file for the full list:
 2. **OAuth scopes** (Bot Token Scopes): `chat:write`, `channels:history`,
    `groups:history` (use `groups:history` for private channels). Install to the
    workspace and copy the Bot Token into `SLACK_BOT_TOKEN`.
-3. **Interactivity** is not used — the messages are read-only, so you can leave
-   Interactivity off in the Slack app (no Request URL needed).
+3. **Interactivity** is not used (no buttons), so you can leave it off.
+   **Event Subscriptions** (optional, for instant updates): Request URL
+   `https://<deployment>/api/slack/events`, bot event `app_mention`, scope
+   `app_mentions:read`; set `SLACK_SIGNING_SECRET`. Then "@bot 2번 완결" updates
+   the item right away and replies with the updated board in the thread.
+   Without it, progress reports in the channel ("2번 완료", "사이니지 업로드 끝")
+   are still applied at the next morning/evening run (`src/lib/statusUpdates.ts`).
 4. **Invite the bot** to the channel `스테이디멘션-마케팅방`
    (`/invite @your-bot`), then set `boards.slack_channel_id` (see step 2).
 
