@@ -55,7 +55,7 @@ export async function runMorning(boardKey: string): Promise<RunResult> {
     today,
     showEmpty: true,
     discussionSummary,
-    footnote: `어제 넘어온 미완료 ${rollover.carried}건 · 채널 보고로 상태 변경 ${extraction.statusChanged}건 · 자동추출 ${extraction.inserted}건(승인 대기)`,
+    footnote: `어제 넘어온 미완료 ${rollover.carried}건 · 기한 지나 정리 ${rollover.expired}건 · 중복 정리 ${rollover.duplicates}건 · 채널 보고로 상태 변경 ${extraction.statusChanged}건 · 자동추출 ${extraction.inserted}건(승인 대기)`,
   });
 
   if (!board.slack_channel_id) {

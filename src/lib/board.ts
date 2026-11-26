@@ -146,12 +146,24 @@ export async function runDailyRollover(
   db: SupabaseClient,
   boardId: string,
   today: string = kstDateString()
-): Promise<{ archived: number; carried: number }> {
-  const items = await getItems(db, boardId, { includePending: false });
+): Promise<{ archived: number; carried: number; expired: number; duplicates: number }> {
+  const all = await getItems(db, boardId, { includePending: false });
 
-  const toArchive = items.filter(
-    (i) => i.status === "done" && isBeforeKstDay(i.completed_at, today)
+  // 기한이 지난 지 EXPIRE_GRACE_DAYS일 넘은 미완료 항목은 보드에서 뺀다(행사 전 점검처럼
+  // 날짜가 지나면 의미 없는 일이 계속 올라오지 않게). 기록은 archived_at으로 남는다.
+  const expired = all.filter(
+    (i) => i.status !== "done" && isExpired(itemDeadline(i, today), today)
   );
+  // 같은 분류 안에서 제목이 같거나 거의 같은 항목은 가장 먼저 만든 것만 남긴다.
+  const duplicates = findDuplicates(all.filter((i) => !expired.includes(i)));
+  const dropped = new Set([...expired, ...duplicates].map((i) => i.id));
+  const items = all.filter((i) => !dropped.has(i.id));
+
+  const toArchive = [
+    ...items.filter((i) => i.status === "done" && isBeforeKstDay(i.completed_at, today)),
+    ...expired,
+    ...duplicates,
+  ];
   // Only carry over items that were created on a PREVIOUS KST day. Items created
   // today are still "day 1" and must stay at carried_over_count 0 (no "N일째"
   // suffix); they only start accruing the suffix once they survive to tomorrow.
@@ -184,7 +196,67 @@ export async function runDailyRollover(
     if (error) throw error;
   }
 
-  return { archived: toArchive.length, carried: toCarry.length };
+  return {
+    archived: toArchive.length,
+    carried: toCarry.length,
+    expired: expired.length,
+    duplicates: duplicates.length,
+  };
+}
+
+/** 기한이 지나고 이만큼(일) 더 지나면 보드에서 뺀다. */
+export const EXPIRE_GRACE_DAYS = 3;
+
+/**
+ * 항목의 기한(YYYY-MM-DD). due_date가 없으면 제목의 "(~10/24까지)", "~11/06까지" 같은
+ * 표기에서 읽는다.
+ */
+export function itemDeadline(item: Pick<ActionItem, "due_date" | "title">, today: string): string | null {
+  if (item.due_date) return item.due_date.slice(0, 10);
+  const m = item.title.match(/~\s*(\d{1,2})\s*\/\s*(\d{1,2})\s*까지/);
+  if (!m) return null;
+  const [ty] = today.split("-").map(Number);
+  const mm = Number(m[1]);
+  const dd = Number(m[2]);
+  if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return null;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  // 작년·올해·내년 중 오늘에 가장 가까운 날짜로 본다(11월에 "~1/5까지"면 내년 1/5).
+  return [ty - 1, ty, ty + 1]
+    .map((y) => `${y}-${pad(mm)}-${pad(dd)}`)
+    .sort((a, b) => Math.abs(daysBetween(today, a)) - Math.abs(daysBetween(today, b)))[0];
+}
+
+export function isExpired(deadline: string | null, today: string): boolean {
+  return !!deadline && daysBetween(deadline, today) > EXPIRE_GRACE_DAYS;
+}
+
+/** b - a, 일 단위(YYYY-MM-DD). */
+function daysBetween(a: string, b: string): number {
+  return Math.round((Date.parse(b + "T00:00:00Z") - Date.parse(a + "T00:00:00Z")) / 86400000);
+}
+
+/** 제목 비교용: 괄호 안 기한·공백·기호를 없애고, 끝의 흔한 동사 차이(게시/업로드/올리기)를 맞춘다. */
+export function normalizeTitle(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, "")
+    .replace(/[\s·.,:;'"`~!?\-_/]+/g, "")
+    .replace(/(게시|업로드|올리기|올림|등록)$/, "");
+}
+
+/** 같은 분류에서 정규화한 제목이 같은 항목 중 가장 먼저 만든 것을 뺀 나머지. */
+export function findDuplicates<T extends Pick<ActionItem, "id" | "title" | "category_id" | "created_at">>(
+  items: T[]
+): T[] {
+  const sorted = [...items].sort((a, b) => a.created_at.localeCompare(b.created_at));
+  const seen = new Set<string>();
+  const dups: T[] = [];
+  for (const it of sorted) {
+    const key = `${it.category_id ?? ""}|${normalizeTitle(it.title)}`;
+    if (seen.has(key)) dups.push(it);
+    else seen.add(key);
+  }
+  return dups;
 }
 
 /** Change an item's status, maintaining completed_at. Returns the updated item. */
